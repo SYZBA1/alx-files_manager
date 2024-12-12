@@ -1,10 +1,14 @@
-
 import express from 'express';
-import router from './routes';
+import routes from './routes';
 
 const app = express();
-app.use(express.json({ limit: '100mb' }));
-app.use(router);
-app.listen(process.env.PORT || 5000);
+const PORT = process.env.PORT || 5000;
 
-export default app;
+// parse JSON request bodies
+app.use(express.json());
+// load routes
+app.use('/', routes);
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});

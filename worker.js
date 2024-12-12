@@ -1,59 +1,48 @@
-import Queue from 'bull';
-import { promises } from 'fs';
-import generateThumbnail from 'image-thumbnail';
-import dBClient from './utils/db';
-import { FilesCollection } from './utils/file';
+const Queue = require('bull');
+const imageThumbnail = require('image-thumbnail');
+const dbClient = require('./utils/db');
 
-const { writeFile } = promises;
+const fileQueue = new Queue('fileQueue');
 
-const THUMBNAIL_SIZES = [500, 250, 100];
-
-const fileQueue = new Queue('image-thumbnail-worker', {
-  redis: {
-    host: 'localhost',
-    port: 6379,
-  },
-});
-
-async function createAndSaveThumbnail(path, width) {
-  const thumbnail = await generateThumbnail(
-    path, { width, responseType: 'base64' },
-  );
-  const filePath = `${path}_${width}`;
-  await writeFile(filePath, Buffer.from(thumbnail, 'base64'));
-}
-
-fileQueue.process(async (job, done) => {
+fileQueue.process(async (job) => {
   const { userId, fileId } = job.data;
-  if (!fileId) { done(new Error('Missing fileId')); }
-  if (!userId) { done(new Error('Missing userId')); }
 
-  const filesCollection = new FilesCollection();
-  const file = await filesCollection.findUserFileById(userId, fileId, false);
-  if (!file) { done(new Error('File not found')); }
+  if (!fileId) {
+    throw new Error('Missing fileId');
+  }
+  if (!userId) {
+    throw new Error('Missing userId');
+  }
 
-  THUMBNAIL_SIZES.forEach(async (size) => {
-    await createAndSaveThumbnail(file.localPath, size);
-  });
-  done();
+  const fileDocument = await dbClient.db.collection('files').findOne({ _id: fileId, userId });
+  if (!fileDocument) {
+    throw new Error('File not found');
+  }
+
+  const options = { width: 500 };
+  const thumbnail500 = await imageThumbnail(fileDocument.localPath, options);
+
+  return { thumbnail500 /* other thumbnails */ };
 });
 
-export const userQueue = new Queue('user-welcome-worker', {
-  redis: {
-    host: 'localhost',
-    port: 6379,
-  },
-});
+// User Queue
+const userQueue = new Queue('userQueue');
 
-userQueue.process(async (job, done) => {
+userQueue.process(async (job) => {
   const { userId } = job.data;
-  if (!userId) { done(new Error('Missing userId')); }
 
-  const user = await dBClient.findUserById(userId);
-  if (!user) { done(new Error('User not found')); }
+  if (!userId) {
+    throw new Error('Missing userId');
+  }
 
-  console.log(`Welcome ${user.email}`);
-  done();
+  const userDocument = await dbClient.db.collection('users').findOne({ _id: userId });
+  if (!userDocument) {
+    throw new Error('User not found');
+  }
+
+  console.log(`Welcome ${userDocument.email}!`);
+
+  return { userId };
 });
 
-export default fileQueue;
+module.exports = { fileQueue, userQueue };
